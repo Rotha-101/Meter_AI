@@ -1,0 +1,5 @@
+{
+  "name": "Metering Reader AI",
+  "description": "Extracts Register Code, Energy Reading, and Serial Number from electricity meter photos using AI OCR.",
+  "requestFramePermissions": []
+}
