@@ -1,7 +1,7 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef, ModuleRegistry, AllCommunityModule, SelectionChangedEvent, CellFocusedEvent } from 'ag-grid-community';
-import { Download, Plus, Trash2, Calculator, ArrowUpRight, ArrowDownRight, Activity, FunctionSquare } from 'lucide-react';
+import { Download, Plus, Trash2, Calculator, ArrowUpRight, ArrowDownRight, Activity, FunctionSquare, CopyPlus, Undo, Redo, Maximize, RotateCcw, Filter, Eraser, Upload, Printer } from 'lucide-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { MeterRecord } from '../data/mockData';
@@ -12,6 +12,64 @@ interface TableTabProps {
   records: MeterRecord[];
   setRecords: React.Dispatch<React.SetStateAction<MeterRecord[]>>;
 }
+
+const CustomHeader = (props: any) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(props.displayName);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isEditing]);
+
+  const onSortRequested = (event: any) => {
+    props.progressSort(event.shiftKey);
+  };
+
+  const onSave = () => {
+    setIsEditing(false);
+    if (name !== props.displayName) {
+      props.setColumnName(props.column.getColId(), name);
+    }
+  };
+
+  let sortIcon = null;
+  if (props.column.isSortAscending()) sortIcon = '↑';
+  if (props.column.isSortDescending()) sortIcon = '↓';
+
+  return (
+    <div className="flex items-center w-full h-full gap-1">
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={onSave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSave();
+            if (e.key === 'Escape') {
+              setName(props.displayName);
+              setIsEditing(false);
+            }
+          }}
+          className="w-full bg-[#1a1a1a] text-white px-1 py-0.5 border border-[#f97316] rounded text-xs outline-none"
+        />
+      ) : (
+        <div 
+          className="flex-1 truncate cursor-text hover:text-white transition-colors" 
+          onDoubleClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+          onClick={onSortRequested}
+          title="Double click to rename, single click to sort"
+        >
+          {name} {sortIcon && <span className="text-[#f97316] ml-1">{sortIcon}</span>}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export function TableTab({ records, setRecords }: TableTabProps) {
   const [gridApi, setGridApi] = useState<any>(null);
@@ -102,7 +160,7 @@ export function TableTab({ records, setRecords }: TableTabProps) {
     let validReadingsCount = 0;
 
     selectedRows.forEach(row => {
-      const val = Number(row.reading);
+      const val = Number(row.todayPower);
       if (!isNaN(val)) {
         sum += val;
         validReadingsCount++;
@@ -117,34 +175,74 @@ export function TableTab({ records, setRecords }: TableTabProps) {
   }, []);
 
   // Define columns with Excel-like features
-  const columnDefs = useMemo<ColDef[]>(() => [
-    { 
-      field: 'feeder', 
-      headerName: 'Feeder', 
-      sortable: true, 
-      filter: 'agTextColumnFilter', 
-      editable: true, 
-      resizable: true,
-      checkboxSelection: true,
-      headerCheckboxSelection: true,
-      width: 200
-    },
+  const [columnDefs, setColumnDefs] = useState<ColDef[]>([
+    { field: 'id', headerName: 'ID', sortable: true, filter: 'agTextColumnFilter', editable: false, resizable: true, width: 80, checkboxSelection: true, headerCheckboxSelection: true },
+    { field: 'model', headerName: 'Model', sortable: true, filter: 'agTextColumnFilter', editable: true, resizable: true },
+    { field: 'brand', headerName: 'Brand', sortable: true, filter: 'agTextColumnFilter', editable: true, resizable: true },
+    { field: 'date', headerName: 'Data', sortable: true, filter: 'agDateColumnFilter', editable: true, resizable: true },
+    { field: 'feeder', headerName: 'Feeder', sortable: true, filter: 'agTextColumnFilter', editable: true, resizable: true },
     { field: 'serialNumber', headerName: 'Serial Number', sortable: true, filter: 'agTextColumnFilter', editable: true, resizable: true },
     { field: 'registerCode', headerName: 'Code Number', sortable: true, filter: 'agTextColumnFilter', editable: true, resizable: true },
-    { field: 'date', headerName: 'Date', sortable: true, filter: 'agDateColumnFilter', editable: true, resizable: true },
+    { field: 'mode', headerName: 'Mode', sortable: true, filter: 'agTextColumnFilter', editable: true, resizable: true },
     { 
-      field: 'reading', 
-      headerName: 'Reading', 
+      field: 'yesterdayPower', 
+      headerName: 'Yesterday Power', 
       sortable: true, 
       filter: 'agNumberColumnFilter', 
       editable: true, 
       resizable: true,
       valueFormatter: (params) => {
         if (params.value === undefined || params.value === null) return '-';
-        return params.value.toString().padStart(7, '0');
+        return params.value.toString();
       }
     },
-  ], []);
+    { 
+      field: 'todayPower', 
+      headerName: 'Today Power', 
+      sortable: true, 
+      filter: 'agNumberColumnFilter', 
+      editable: true, 
+      resizable: true,
+      valueFormatter: (params) => {
+        if (params.value === undefined || params.value === null) return '-';
+        return params.value.toString();
+      }
+    },
+    { 
+      field: 'powerMade', 
+      headerName: 'Power Made', 
+      sortable: true, 
+      filter: 'agNumberColumnFilter', 
+      editable: false, 
+      resizable: true,
+      valueGetter: (params) => {
+        const yesterday = Number(params.data.yesterdayPower) || 0;
+        const today = Number(params.data.todayPower) || 0;
+        return today - yesterday;
+      },
+      valueFormatter: (params) => {
+        if (params.value === undefined || params.value === null) return '-';
+        return params.value.toString();
+      }
+    },
+  ]);
+
+  const setColumnName = useCallback((colId: string, newName: string) => {
+    setColumnDefs(prev => prev.map(col => {
+      if (col.field === colId || col.colId === colId) {
+        return { ...col, headerName: newName };
+      }
+      return col;
+    }));
+  }, []);
+
+  const colsWithCustomHeader = useMemo(() => {
+    return columnDefs.map(col => ({
+      ...col,
+      headerComponent: CustomHeader,
+      headerComponentParams: { setColumnName }
+    }));
+  }, [columnDefs, setColumnName]);
 
   const defaultColDef = useMemo<ColDef>(() => ({
     flex: 1,
@@ -158,14 +256,114 @@ export function TableTab({ records, setRecords }: TableTabProps) {
     }
   }, [gridApi]);
 
+  const duplicateSelected = useCallback(() => {
+    if (!gridApi) return;
+    const selectedNodes = gridApi.getSelectedNodes();
+    if (selectedNodes.length === 0) return;
+    
+    const newRecords = selectedNodes.map((node: any) => ({
+      ...node.data,
+      id: Math.random().toString(36).substring(2, 9)
+    }));
+    
+    setRecords(prev => [...newRecords, ...prev]);
+  }, [gridApi, setRecords]);
+
+  const clearAll = useCallback(() => {
+    if (window.confirm('Are you sure you want to delete all records?')) {
+      setRecords([]);
+    }
+  }, [setRecords]);
+
+  const undo = useCallback(() => {
+    if (gridApi) gridApi.undoCellEditing();
+  }, [gridApi]);
+
+  const redo = useCallback(() => {
+    if (gridApi) gridApi.redoCellEditing();
+  }, [gridApi]);
+
+  const autoSizeAll = useCallback(() => {
+    if (gridApi) {
+      const allColumnIds: string[] = [];
+      gridApi.getColumns()?.forEach((column) => {
+        allColumnIds.push(column.getColId());
+      });
+      gridApi.autoSizeColumns(allColumnIds);
+    }
+  }, [gridApi]);
+
+  const resetColumns = useCallback(() => {
+    if (gridApi) {
+      gridApi.resetColumnState();
+    }
+  }, [gridApi]);
+
+  const toggleFilters = useCallback(() => {
+    setColumnDefs(prev => prev.map(col => ({ ...col, floatingFilter: !col.floatingFilter })));
+  }, []);
+
+  const printTable = useCallback(() => {
+    window.print();
+  }, []);
+
+  const handleImportCsv = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+      
+      const lines = text.split('\n');
+      if (lines.length < 2) return;
+      
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      const newRecords: MeterRecord[] = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+        const record: any = { id: Math.random().toString(36).substring(2, 9) };
+        
+        headers.forEach((header, index) => {
+          if (values[index] !== undefined) {
+            const field = columnDefs.find(c => c.headerName === header)?.field;
+            if (field) {
+              record[field] = values[index];
+            }
+          }
+        });
+        
+        if (record.date || record.todayPower) {
+          newRecords.push(record as MeterRecord);
+        }
+      }
+      
+      if (newRecords.length > 0) {
+        setRecords(prev => [...newRecords, ...prev]);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, [columnDefs, setRecords]);
+
   const addRow = useCallback(() => {
     const newRecord: MeterRecord = {
       id: Math.random().toString(36).substring(2, 9),
+      model: '',
+      brand: '',
+      date: new Date().toISOString().split('T')[0],
       feeder: 'New Feeder',
       serialNumber: '000000',
       registerCode: '1.8.0',
-      date: new Date().toISOString().split('T')[0],
-      reading: 0
+      mode: 'Discharge',
+      yesterdayPower: 0,
+      todayPower: 0,
+      powerMade: 0
     };
     setRecords(prev => [newRecord, ...prev]);
   }, [setRecords]);
@@ -183,7 +381,7 @@ export function TableTab({ records, setRecords }: TableTabProps) {
   // Data Analysis Calculations
   const analysis = useMemo(() => {
     if (records.length === 0) return { avg: 0, max: 0, min: 0, sum: 0 };
-    const readings = records.map(r => Number(r.reading) || 0);
+    const readings = records.map(r => Number(r.todayPower) || 0);
     const sum = readings.reduce((a, b) => a + b, 0);
     return {
       avg: Math.round(sum / readings.length),
@@ -207,22 +405,22 @@ export function TableTab({ records, setRecords }: TableTabProps) {
         <div className="bg-[#141414] p-4 rounded-xl border border-[#2a2a2a] shadow-sm flex items-center gap-4">
           <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><Activity size={20} /></div>
           <div>
-            <p className="text-xs font-medium text-neutral-500 uppercase">Average Reading</p>
-            <p className="text-xl font-bold text-neutral-100">{analysis.avg.toLocaleString()}</p>
+            <p className="text-xs font-medium text-neutral-500 uppercase">Average Today Power</p>
+            <p className="text-xl font-bold text-neutral-100">{analysis.avg?.toLocaleString() ?? '-'}</p>
           </div>
         </div>
         <div className="bg-[#141414] p-4 rounded-xl border border-[#2a2a2a] shadow-sm flex items-center gap-4">
           <div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><ArrowUpRight size={20} /></div>
           <div>
-            <p className="text-xs font-medium text-neutral-500 uppercase">Max Reading</p>
-            <p className="text-xl font-bold text-neutral-100">{analysis.max.toLocaleString()}</p>
+            <p className="text-xs font-medium text-neutral-500 uppercase">Max Today Power</p>
+            <p className="text-xl font-bold text-neutral-100">{analysis.max?.toLocaleString() ?? '-'}</p>
           </div>
         </div>
         <div className="bg-[#141414] p-4 rounded-xl border border-[#2a2a2a] shadow-sm flex items-center gap-4">
           <div className="p-3 bg-purple-500/10 text-purple-500 rounded-lg"><ArrowDownRight size={20} /></div>
           <div>
-            <p className="text-xs font-medium text-neutral-500 uppercase">Min Reading</p>
-            <p className="text-xl font-bold text-neutral-100">{analysis.min.toLocaleString()}</p>
+            <p className="text-xs font-medium text-neutral-500 uppercase">Min Today Power</p>
+            <p className="text-xl font-bold text-neutral-100">{analysis.min?.toLocaleString() ?? '-'}</p>
           </div>
         </div>
       </div>
@@ -230,28 +428,86 @@ export function TableTab({ records, setRecords }: TableTabProps) {
       {/* Grid Container */}
       <div className="bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Toolbar */}
-        <div className="p-3 border-b border-[#2a2a2a] flex justify-between items-center bg-[#0a0a0a] shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="p-3 border-b border-[#2a2a2a] flex justify-between items-center bg-[#0a0a0a] shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-2 pb-1 sm:pb-0">
             <button 
               onClick={addRow}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
             >
               <Plus size={16} /> Add Row
             </button>
             <button 
+              onClick={duplicateSelected}
+              disabled={selectedStats.count === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              <CopyPlus size={16} /> Duplicate
+            </button>
+            <button 
               onClick={deleteSelected}
               disabled={selectedStats.count === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 rounded-lg font-medium transition-colors text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 rounded-lg font-medium transition-colors text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             >
               <Trash2 size={16} /> Delete
             </button>
+            <div className="w-px h-6 bg-[#2a2a2a] mx-1"></div>
+            <button 
+              onClick={undo}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Undo size={16} /> Undo
+            </button>
+            <button 
+              onClick={redo}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Redo size={16} /> Redo
+            </button>
+            <div className="w-px h-6 bg-[#2a2a2a] mx-1"></div>
+            <button 
+              onClick={autoSizeAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Maximize size={16} /> Auto-Size
+            </button>
+            <button 
+              onClick={resetColumns}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <RotateCcw size={16} /> Reset View
+            </button>
+            <button 
+              onClick={toggleFilters}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Filter size={16} /> Filters
+            </button>
+            <div className="w-px h-6 bg-[#2a2a2a] mx-1"></div>
+            <button 
+              onClick={clearAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Eraser size={16} /> Clear All
+            </button>
           </div>
-          <button 
-            onClick={exportToCsv}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f97316] text-white hover:bg-[#ea580c] rounded-lg font-medium transition-colors text-sm shadow-sm"
-          >
-            <Download size={16} /> Export CSV
-          </button>
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap">
+              <Upload size={16} /> Import CSV
+              <input type="file" accept=".csv" className="hidden" onChange={handleImportCsv} />
+            </label>
+            <button 
+              onClick={exportToCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f97316] text-white hover:bg-[#ea580c] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Download size={16} /> Export CSV
+            </button>
+            <button 
+              onClick={printTable}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] border border-[#2a2a2a] text-neutral-300 hover:bg-[#1a1a1a] hover:text-[#f97316] rounded-lg font-medium transition-colors text-sm shadow-sm whitespace-nowrap"
+            >
+              <Printer size={16} /> Print
+            </button>
+          </div>
         </div>
 
         {/* Excel Formula Bar */}
@@ -277,7 +533,7 @@ export function TableTab({ records, setRecords }: TableTabProps) {
           <AgGridReact
             theme="legacy"
             rowData={records}
-            columnDefs={columnDefs}
+            columnDefs={colsWithCustomHeader}
             defaultColDef={defaultColDef}
             onGridReady={onGridReady}
             rowSelection="multiple"
@@ -311,9 +567,9 @@ export function TableTab({ records, setRecords }: TableTabProps) {
         <div className="p-2 border-t border-[#2a2a2a] bg-[#0a0a0a] flex justify-end items-center gap-6 text-xs text-neutral-400 font-medium shrink-0">
           {selectedStats.count > 0 ? (
             <>
-              <span>Average: {selectedStats.avg.toLocaleString()}</span>
+              <span>Average: {selectedStats.avg?.toLocaleString() ?? '-'}</span>
               <span>Count: {selectedStats.count}</span>
-              <span>Sum: {selectedStats.sum.toLocaleString()}</span>
+              <span>Sum: {selectedStats.sum?.toLocaleString() ?? '-'}</span>
             </>
           ) : (
             <span className="text-neutral-500">Ready</span>

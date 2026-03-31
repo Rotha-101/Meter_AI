@@ -1,28 +1,21 @@
 export interface MeterRecord {
   id: string;
+  model: string;
+  brand: string;
   date: string;
   feeder: string;
   serialNumber: string;
   registerCode: string;
-  reading: number;
+  mode: string;
+  yesterdayPower: number;
+  todayPower: number;
+  powerMade: number;
+  photoBase64?: string;
 }
 
 export const initialRecords: MeterRecord[] = [
-  // Feeder F1
-  { id: '1', date: '2025-11-29', feeder: 'Feeder F1', serialNumber: '253626605', registerCode: '1.8.0', reading: 231452 },
-  { id: '2', date: '2025-11-30', feeder: 'Feeder F1', serialNumber: '253626605', registerCode: '1.8.0', reading: 270532 },
-  { id: '3', date: '2025-11-29', feeder: 'Feeder F1', serialNumber: '253626605', registerCode: '2.8.0', reading: 244436 },
-  { id: '4', date: '2025-11-30', feeder: 'Feeder F1', serialNumber: '253626605', registerCode: '2.8.0', reading: 288593 },
-  // Feeder F2
-  { id: '5', date: '2025-11-29', feeder: 'Feeder F2', serialNumber: '253626612', registerCode: '1.8.0', reading: 357127 },
-  { id: '6', date: '2025-11-30', feeder: 'Feeder F2', serialNumber: '253626612', registerCode: '1.8.0', reading: 418596 },
-  { id: '7', date: '2025-11-29', feeder: 'Feeder F2', serialNumber: '253626612', registerCode: '2.8.0', reading: 406688 },
-  { id: '8', date: '2025-11-30', feeder: 'Feeder F2', serialNumber: '253626612', registerCode: '2.8.0', reading: 476551 },
-  // Feeder F5
-  { id: '9', date: '2025-11-29', feeder: 'Feeder F5', serialNumber: '253626597', registerCode: '1.8.0', reading: 270046 },
-  { id: '10', date: '2025-11-30', feeder: 'Feeder F5', serialNumber: '253626597', registerCode: '1.8.0', reading: 315664 },
-  { id: '11', date: '2025-11-29', feeder: 'Feeder F5', serialNumber: '253626597', registerCode: '2.8.0', reading: 304548 },
-  { id: '12', date: '2025-11-30', feeder: 'Feeder F5', serialNumber: '253626597', registerCode: '2.8.0', reading: 356997 },
+  { id: '1', model: 'Model A', brand: 'Brand X', date: '2025-11-29', feeder: 'Feeder 1', serialNumber: '253626605', registerCode: '1.8.0', mode: 'Discharge', yesterdayPower: 555555, todayPower: 888888, powerMade: 333333 },
+  { id: '2', model: 'Model A', brand: 'Brand X', date: '2025-11-29', feeder: 'Feeder 1', serialNumber: '253626605', registerCode: '2.8.0', mode: 'Charge', yesterdayPower: 455555, todayPower: 777777, powerMade: 322222 },
 ];
 
 export interface ChartDataPoint {

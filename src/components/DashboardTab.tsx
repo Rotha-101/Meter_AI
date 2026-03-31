@@ -30,16 +30,16 @@ export function DashboardTab({ records }: DashboardTabProps) {
       // 1. Raw Readings (Trend)
       if (!tMap.has(r.date)) tMap.set(r.date, { date: r.date });
       const tEntry = tMap.get(r.date);
-      tEntry[r.feeder] = Math.max(tEntry[r.feeder] || 0, r.reading);
+      tEntry[r.feeder] = Math.max(tEntry[r.feeder] || 0, r.todayPower);
 
       // 2. Consumption (Difference from previous reading)
       const key = `${r.feeder}-${r.registerCode}`;
       const prev = prevReadings.get(key);
       let consumption = 0;
-      if (prev !== undefined && r.reading >= prev) {
-        consumption = r.reading - prev;
+      if (prev !== undefined && r.todayPower >= prev) {
+        consumption = r.todayPower - prev;
       }
-      prevReadings.set(key, r.reading);
+      prevReadings.set(key, r.todayPower);
 
       if (!cMap.has(r.date)) cMap.set(r.date, { date: r.date });
       const cEntry = cMap.get(r.date);
@@ -66,10 +66,10 @@ export function DashboardTab({ records }: DashboardTabProps) {
     let registerData = rawRegisterData.filter(d => Object.keys(d).some(k => k !== 'date' && d[k] > 0));
     if (registerData.length === 0) registerData = rawRegisterData; // fallback
 
-    // Pie data: Latest reading per feeder
+    // Pie data: Latest todayPower per feeder
     const latestReadings = new Map<string, number>();
     sortedRecords.forEach(r => {
-      latestReadings.set(r.feeder, Math.max(latestReadings.get(r.feeder) || 0, r.reading));
+      latestReadings.set(r.feeder, Math.max(latestReadings.get(r.feeder) || 0, r.todayPower));
     });
     const pieData = Array.from(latestReadings.entries()).map(([name, value]) => ({ name, value }));
 
@@ -103,7 +103,7 @@ export function DashboardTab({ records }: DashboardTabProps) {
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
                 {entry.name}
               </span>
-              <span className="font-mono text-neutral-100">{entry.value.toLocaleString()}</span>
+              <span className="font-mono text-neutral-100">{entry.value?.toLocaleString() ?? '-'}</span>
             </div>
           ))}
         </div>
@@ -126,13 +126,13 @@ export function DashboardTab({ records }: DashboardTabProps) {
         {/* 1. Daily Energy Consumption (Bar) */}
         <div className="bg-[#141414] p-6 rounded-2xl shadow-sm border border-[#2a2a2a] lg:col-span-2">
           <h3 className="text-lg font-medium text-neutral-100 mb-4">Daily Energy Consumption</h3>
-          <p className="text-sm text-neutral-400 mb-4">Calculated difference between consecutive meter readings.</p>
+          <p className="text-sm text-neutral-400 mb-4">Calculated difference between consecutive meter power readings.</p>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={consumptionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2a2a2a" />
                 <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#a3a3a3' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#a3a3a3' }} axisLine={false} tickLine={false} width={80} tickFormatter={(val) => val.toLocaleString()} />
+                <YAxis tick={{ fontSize: 12, fill: '#a3a3a3' }} axisLine={false} tickLine={false} width={80} tickFormatter={(val) => val?.toLocaleString() ?? ''} />
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: '#1a1a1a' }} />
                 <Legend wrapperStyle={{ paddingTop: '20px' }} />
                 {feeders.map((feeder, i) => (
@@ -170,7 +170,7 @@ export function DashboardTab({ records }: DashboardTabProps) {
               <AreaChart data={registerData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2a2a2a" />
                 <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#a3a3a3' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#a3a3a3' }} axisLine={false} tickLine={false} width={80} tickFormatter={(val) => val.toLocaleString()} />
+                <YAxis tick={{ fontSize: 12, fill: '#a3a3a3' }} axisLine={false} tickLine={false} width={80} tickFormatter={(val) => val?.toLocaleString() ?? ''} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend wrapperStyle={{ paddingTop: '10px' }} />
                 <Area type="monotone" dataKey="Import (1.8.0)" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
@@ -204,7 +204,7 @@ export function DashboardTab({ records }: DashboardTabProps) {
                 <Tooltip 
                   contentStyle={{ borderRadius: '12px', border: '1px solid #2a2a2a', backgroundColor: '#141414', color: '#f5f5f5' }} 
                   itemStyle={{ color: '#e5e5e5' }}
-                  formatter={(value: number) => value.toLocaleString()}
+                  formatter={(value: number) => value?.toLocaleString() ?? ''}
                 />
                 <Legend />
               </PieChart>

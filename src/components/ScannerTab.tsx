@@ -1,346 +1,336 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Activity, Zap, Hash, ScanLine, AlertCircle, CheckCircle2, Save, Trash2, Play } from 'lucide-react';
 import { ImageUploader } from './ImageUploader';
-import { extractMeterData, MeterData } from '../services/geminiService';
+import { extractMeterData, MeterData } from '../services/apiService';
 import { MeterRecord } from '../data/mockData';
+import { ServerConfig, ScannedItem } from '../types';
+import { CheckCircle2, AlertCircle, Loader2, Save, Trash2, Plus, Play, X, ZoomIn } from 'lucide-react';
 
 interface ScannerTabProps {
   onSaveRecord: (record: Omit<MeterRecord, 'id'>) => void;
+  serverConfig: ServerConfig;
+  isConnected: boolean;
+  items: ScannedItem[];
+  setItems: React.Dispatch<React.SetStateAction<ScannedItem[]>>;
 }
 
-interface UploadItem {
-  id: string;
-  base64: string;
-  status: 'idle' | 'processing' | 'success' | 'error';
-  results?: MeterData;
-  error?: string;
-  pipelineStep: number;
-  feederName: string;
-  readingDate: string;
-  isSaved: boolean;
-}
-
-export function ScannerTab({ onSaveRecord }: ScannerTabProps) {
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [isProcessingAll, setIsProcessingAll] = useState(false);
+export function ScannerTab({ onSaveRecord, serverConfig, isConnected, items, setItems }: ScannerTabProps) {
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  const [zoomedItem, setZoomedItem] = useState<ScannedItem | null>(null);
 
   const handleImagesSelected = (base64s: string[]) => {
-    const newItems: UploadItem[] = base64s.map(base64 => ({
+    const newItems: ScannedItem[] = base64s.map(b64 => ({
       id: Math.random().toString(36).substring(2, 9),
-      base64,
-      status: 'idle',
-      pipelineStep: 0,
-      feederName: 'Feeder F1',
-      readingDate: new Date().toISOString().split('T')[0],
-      isSaved: false,
+      base64: b64,
+      status: 'pending',
+      saved: false
     }));
     setItems(prev => [...prev, ...newItems]);
   };
 
-  const updateItem = (id: string, updates: Partial<UploadItem>) => {
-    setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
-  };
+  const processItem = async (id: string, base64: string) => {
+    if (!isConnected) {
+      setItems(prev => prev.map(item => item.id === id ? { ...item, status: 'error', error: 'Not connected to server. Please connect in the Server Connection tab.' } : item));
+      return;
+    }
 
-  const removeItem = (id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id));
-  };
-
-  const processItem = async (id: string) => {
-    const item = items.find(i => i.id === id);
-    if (!item || item.status === 'processing') return;
-
-    updateItem(id, { status: 'processing', error: undefined, results: undefined, pipelineStep: 1, isSaved: false });
+    setItems(prev => prev.map(item => item.id === id ? { ...item, status: 'processing', error: undefined } : item));
 
     try {
-      setTimeout(() => updateItem(id, { pipelineStep: 2 }), 800);
-      setTimeout(() => updateItem(id, { pipelineStep: 3 }), 1600);
-
-      const data = await extractMeterData(item.base64);
-      
-      updateItem(id, { status: 'success', results: data, pipelineStep: 4 });
+      const data = await extractMeterData(base64, serverConfig);
+      setItems(prev => prev.map(item => item.id === id ? { ...item, status: 'success', results: data } : item));
     } catch (err) {
-      updateItem(id, { 
-        status: 'error', 
-        error: err instanceof Error ? err.message : 'An unknown error occurred',
-        pipelineStep: 0 
-      });
+      setItems(prev => prev.map(item => item.id === id ? { ...item, status: 'error', error: err instanceof Error ? err.message : 'Unknown error occurred' } : item));
     }
   };
 
-  const processAll = async () => {
-    setIsProcessingAll(true);
-    // Process sequentially to avoid rate limits
-    const idleItems = items.filter(i => i.status === 'idle');
-    for (const item of idleItems) {
-      await processItem(item.id);
+  const processAllPending = async () => {
+    setIsProcessingBatch(true);
+    // Get pending items at the start of the batch
+    const pendingItems = items.filter(i => i.status === 'pending' || i.status === 'error');
+    
+    for (const item of pendingItems) {
+      if (!isConnected) break;
+      await processItem(item.id, item.base64);
     }
-    setIsProcessingAll(false);
+    setIsProcessingBatch(false);
   };
 
   const handleSave = (id: string) => {
     const item = items.find(i => i.id === id);
-    if (!item || !item.results || item.isSaved) return;
-    
+    if (!item || !item.results || item.saved) return;
+
     const numericReading = parseInt(item.results.energyReading.replace(/\D/g, ''), 10) || 0;
 
+    const extractedDate = item.results.timestamp 
+      ? item.results.timestamp.split(' ')[0].replace(/\//g, '-') 
+      : new Date().toISOString().split('T')[0];
+
     onSaveRecord({
-      date: item.readingDate,
-      feeder: item.feederName,
+      date: extractedDate,
+      feeder: 'Feeder 1',
       serialNumber: item.results.serialNumber,
       registerCode: item.results.registerCode,
-      reading: numericReading,
+      model: item.results.meterModel || '',
+      brand: item.results.meterBrand || '',
+      mode: item.results.registerCode === '1.8.0' ? 'Discharge' : item.results.registerCode === '2.8.0' ? 'Charge' : 'Discharge',
+      yesterdayPower: 0,
+      todayPower: numericReading,
+      powerMade: 0,
+      photoBase64: item.base64,
     });
-    
-    updateItem(id, { isSaved: true });
+
+    setItems(prev => prev.map(i => i.id === id ? { ...i, saved: true } : i));
   };
 
-  const saveAll = () => {
+  const handleSaveAll = () => {
     items.forEach(item => {
-      if (item.status === 'success' && item.results && !item.isSaved) {
+      if (item.status === 'success' && !item.saved) {
         handleSave(item.id);
       }
     });
   };
 
+  const handleClearAll = () => {
+    if (confirm('Are you sure you want to clear all images?')) {
+      setItems([]);
+    }
+  };
+
+  const handleRemove = (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id));
+  };
+
+  const handleUpdateResult = (id: string, field: keyof MeterData, value: string) => {
+    setItems(prev => prev.map(item => {
+      if (item.id === id && item.results) {
+        return { ...item, results: { ...item.results, [field]: value } };
+      }
+      return item;
+    }));
+  };
+
+  if (items.length === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center">
+        <div className="max-w-xl w-full bg-[#141414] p-8 rounded-2xl shadow-sm border border-[#2a2a2a]">
+          <div className="text-center mb-6">
+            <h2 className="text-2xl font-bold text-neutral-200">Batch Meter Scanner</h2>
+            <p className="text-neutral-500 mt-2">Upload multiple meter photos to extract data automatically.</p>
+          </div>
+          <ImageUploader onImagesSelected={handleImagesSelected} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8">
-      {/* Uploader Section */}
-      <div className="bg-[#141414] p-6 rounded-2xl shadow-sm border border-[#2a2a2a]">
-        <h2 className="text-lg font-medium mb-4 flex items-center gap-2 text-neutral-200">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#1a1a1a] text-xs font-bold text-neutral-400">1</span>
-          Upload Meter Photos
-        </h2>
-        <ImageUploader 
-          onImagesSelected={handleImagesSelected} 
-        />
+    <div className="h-full flex flex-col gap-4 relative">
+      {/* Zoom Modal */}
+      {zoomedItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 md:p-8" onClick={() => setZoomedItem(null)}>
+          <div className="relative max-w-7xl w-full h-full flex flex-col lg:flex-row gap-6 items-center justify-center" onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={() => setZoomedItem(null)}
+              className="absolute top-0 right-0 lg:-top-4 lg:-right-4 bg-black/50 hover:bg-black/80 text-white p-3 rounded-full transition-colors z-10 border border-white/10"
+            >
+              <X size={24} />
+            </button>
+            
+            {/* Image Side */}
+            <div className="flex-1 w-full h-1/2 lg:h-full flex items-center justify-center bg-[#0a0a0a] rounded-2xl border border-[#2a2a2a] overflow-hidden p-2">
+              <img src={zoomedItem.base64} alt="Zoomed Meter" className="max-w-full max-h-full object-contain rounded-xl" />
+            </div>
+
+            {/* Results Side */}
+            <div className="w-full lg:w-[500px] shrink-0 bg-[#141414] rounded-2xl border border-[#2a2a2a] p-6 lg:p-8 overflow-y-auto h-1/2 lg:h-full flex flex-col gap-6">
+              <h3 className="text-2xl font-bold text-neutral-100 border-b border-[#2a2a2a] pb-4">Extracted Data</h3>
+              
+              {zoomedItem.status === 'success' || zoomedItem.results ? (
+                <div className="flex flex-col gap-5">
+                  <ZoomInputField label="Timestamp" value={zoomedItem.results!.timestamp} />
+                  <ZoomInputField label="Register Code" value={zoomedItem.results!.registerCode} />
+                  <ZoomInputField label="Reading (kWh)" value={zoomedItem.results!.energyReading} />
+                  <ZoomInputField label="Serial Number" value={zoomedItem.results!.serialNumber} />
+                  <ZoomInputField label="Brand" value={zoomedItem.results!.meterBrand} />
+                  <ZoomInputField label="Model" value={zoomedItem.results!.meterModel} />
+                  <ZoomInputField label="CT Ratio" value={zoomedItem.results!.ctRatio} />
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-neutral-500 text-lg">
+                  {zoomedItem.status === 'processing' ? 'Processing...' : zoomedItem.status === 'error' ? 'Error extracting data' : 'No data extracted yet'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-[#141414] p-4 rounded-xl border border-[#2a2a2a] shrink-0">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-bold text-neutral-200">Batch Scanner</h2>
+          <span className="bg-[#2a2a2a] text-neutral-300 text-xs px-2.5 py-1 rounded-md font-medium">{items.length} images</span>
+        </div>
         
-        {items.length > 0 && (
-          <div className="mt-6 flex justify-between items-center border-t border-[#2a2a2a] pt-6">
-            <p className="text-sm text-neutral-400 font-medium">
-              {items.length} image{items.length !== 1 ? 's' : ''} uploaded
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setItems([])}
-                className="px-4 py-2 rounded-xl font-medium text-neutral-400 hover:bg-[#1a1a1a] hover:text-neutral-200 transition-colors"
-              >
-                Clear All
-              </button>
-              <button
-                onClick={processAll}
-                disabled={isProcessingAll || items.every(i => i.status !== 'idle')}
-                className={`
-                  px-6 py-2 rounded-xl font-medium flex items-center gap-2 transition-all
-                  ${isProcessingAll || items.every(i => i.status !== 'idle')
-                    ? 'bg-[#1a1a1a] text-neutral-500 cursor-not-allowed' 
-                    : 'bg-[#f97316] text-white hover:bg-[#ea580c] shadow-md hover:shadow-lg active:scale-[0.98]'}
-                `}
-              >
-                {isProcessingAll ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Play size={18} />
-                    Process All Idle
-                  </>
-                )}
-              </button>
-              <button
-                onClick={saveAll}
-                disabled={!items.some(i => i.status === 'success' && !i.isSaved)}
-                className={`
-                  px-6 py-2 rounded-xl font-medium flex items-center gap-2 transition-all
-                  ${!items.some(i => i.status === 'success' && !i.isSaved)
-                    ? 'bg-[#1a1a1a] text-neutral-500 cursor-not-allowed' 
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md hover:shadow-lg active:scale-[0.98]'}
-                `}
-              >
-                <Save size={18} />
-                Save All
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="cursor-pointer flex items-center gap-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-neutral-200 px-4 py-2 rounded-lg font-medium transition-colors">
+            <Plus size={16} />
+            <span>Add Photos</span>
+            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
+              if (e.target.files) {
+                const files = Array.from(e.target.files);
+                Promise.all(files.map(f => new Promise<string>(res => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => res(reader.result as string);
+                  reader.readAsDataURL(f as unknown as Blob);
+                }))).then(handleImagesSelected);
+              }
+              e.target.value = '';
+            }} />
+          </label>
+
+          <button 
+            onClick={processAllPending}
+            disabled={isProcessingBatch || !items.some(i => i.status === 'pending' || i.status === 'error')}
+            className="flex items-center gap-2 bg-[#f97316] hover:bg-[#ea580c] text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isProcessingBatch ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+            <span>Process Pending</span>
+          </button>
+
+          <button 
+            onClick={handleSaveAll}
+            disabled={!items.some(i => i.status === 'success' && !i.saved)}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save size={16} />
+            <span>Save Completed</span>
+          </button>
+
+          <button 
+            onClick={handleClearAll}
+            className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            <Trash2 size={16} />
+            <span className="hidden sm:inline">Clear All</span>
+          </button>
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto pr-2 space-y-4 pb-10">
+        {items.map(item => (
+          <div key={item.id} className={`bg-[#141414] border ${item.saved ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-[#2a2a2a]'} rounded-xl p-4 flex flex-col xl:flex-row gap-4 transition-colors`}>
+            {/* Image */}
+            <div 
+              className="w-full xl:w-80 h-80 shrink-0 bg-[#0a0a0a] rounded-lg overflow-hidden relative border border-[#2a2a2a] cursor-pointer group"
+              onClick={() => setZoomedItem(item)}
+            >
+              <img src={item.base64} className="w-full h-full object-contain" alt="Meter" />
+              
+              {/* Hover Overlay */}
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                <ZoomIn className="text-white" size={24} />
+                <span className="text-white text-sm font-medium">Click to zoom</span>
+              </div>
+
+              {item.status === 'processing' && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <Loader2 className="animate-spin text-[#f97316]" size={32} />
+                </div>
+              )}
+            </div>
+
+            {/* Data Form */}
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {item.status === 'success' || item.results ? (
+                <>
+                  <InputField label="Timestamp" value={item.results!.timestamp} onChange={(v) => handleUpdateResult(item.id, 'timestamp', v)} disabled={item.saved} />
+                  <InputField label="Register Code" value={item.results!.registerCode} onChange={(v) => handleUpdateResult(item.id, 'registerCode', v)} disabled={item.saved} />
+                  <InputField label="Reading (kWh)" value={item.results!.energyReading} onChange={(v) => handleUpdateResult(item.id, 'energyReading', v)} disabled={item.saved} />
+                  <InputField label="Serial Number" value={item.results!.serialNumber} onChange={(v) => handleUpdateResult(item.id, 'serialNumber', v)} disabled={item.saved} />
+                  <InputField label="Brand" value={item.results!.meterBrand} onChange={(v) => handleUpdateResult(item.id, 'meterBrand', v)} disabled={item.saved} />
+                  <InputField label="Model" value={item.results!.meterModel} onChange={(v) => handleUpdateResult(item.id, 'meterModel', v)} disabled={item.saved} />
+                  <InputField label="CT Ratio" value={item.results!.ctRatio} onChange={(v) => handleUpdateResult(item.id, 'ctRatio', v)} disabled={item.saved} />
+                </>
+              ) : item.status === 'error' ? (
+                <div className="col-span-full flex items-center justify-center gap-2 text-red-400 bg-red-400/10 p-4 rounded-lg border border-red-400/20 h-full">
+                  <AlertCircle size={20} />
+                  <span className="font-medium">{item.error}</span>
+                </div>
+              ) : item.status === 'processing' ? (
+                <div className="col-span-full flex flex-col items-center justify-center text-[#f97316] h-full gap-3">
+                  <Loader2 size={24} className="animate-spin" />
+                  <span className="font-medium animate-pulse">Extracting data with {serverConfig.model}...</span>
+                </div>
+              ) : (
+                <div className="col-span-full flex items-center justify-center text-neutral-500 h-full border-2 border-dashed border-[#2a2a2a] rounded-lg">
+                  <span className="font-medium">Pending processing</span>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="w-full xl:w-32 shrink-0 flex flex-row xl:flex-col gap-2 justify-center border-t xl:border-t-0 xl:border-l border-[#2a2a2a] pt-4 xl:pt-0 xl:pl-4">
+              {item.saved ? (
+                <div className="flex items-center justify-center gap-2 text-emerald-500 bg-emerald-500/10 py-2.5 rounded-lg w-full border border-emerald-500/20">
+                  <CheckCircle2 size={18} />
+                  <span className="font-medium">Saved</span>
+                </div>
+              ) : (
+                <>
+                  {(item.status === 'pending' || item.status === 'error') && (
+                    <button onClick={() => processItem(item.id, item.base64)} className="flex-1 flex items-center justify-center gap-2 bg-[#f97316] hover:bg-[#ea580c] text-white py-2.5 rounded-lg transition-colors font-medium">
+                      <Play size={16} />
+                      <span>Process</span>
+                    </button>
+                  )}
+                  {item.status === 'success' && (
+                    <button onClick={() => handleSave(item.id)} className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-lg transition-colors font-medium">
+                      <Save size={16} />
+                      <span>Save</span>
+                    </button>
+                  )}
+                </>
+              )}
+              <button onClick={() => handleRemove(item.id)} className="flex-1 flex items-center justify-center gap-2 bg-[#2a2a2a] hover:bg-red-500/20 hover:text-red-400 text-neutral-300 py-2.5 rounded-lg transition-colors font-medium">
+                <Trash2 size={16} />
+                <span className="xl:hidden">Remove</span>
               </button>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Items List */}
-      <div className="space-y-6">
-        <AnimatePresence>
-          {items.map((item, index) => (
-            <motion.div 
-              key={item.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-[#141414] rounded-2xl shadow-sm border border-[#2a2a2a] overflow-hidden flex flex-col lg:flex-row"
-            >
-              {/* Left: Image & Status */}
-              <div className="w-full lg:w-2/5 bg-[#0a0a0a] p-6 border-b lg:border-b-0 lg:border-r border-[#2a2a2a] flex flex-col">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-medium text-neutral-300">Image {index + 1}</h3>
-                  <button 
-                    onClick={() => removeItem(item.id)}
-                    className="p-1.5 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                    title="Remove image"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-                
-                <div className="relative rounded-xl overflow-hidden border border-[#2a2a2a] bg-[#141414] flex-1 min-h-[200px] flex items-center justify-center">
-                  <img 
-                    src={item.base64} 
-                    alt={`Meter ${index + 1}`} 
-                    className={`max-w-full max-h-[300px] object-contain ${item.status === 'processing' ? 'opacity-50 blur-sm' : ''} transition-all duration-300`}
-                  />
-                  {item.status === 'processing' && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="bg-[#141414]/90 px-4 py-2 rounded-full shadow-lg flex items-center gap-2 font-medium text-[#f97316] text-sm border border-[#2a2a2a]">
-                        <div className="w-4 h-4 border-2 border-[#f97316] border-t-transparent rounded-full animate-spin"></div>
-                        Processing...
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {item.status === 'idle' && (
-                  <button
-                    onClick={() => processItem(item.id)}
-                    className="mt-4 w-full py-2.5 bg-[#f97316]/10 text-[#f97316] hover:bg-[#f97316]/20 font-medium rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <ScanLine size={18} />
-                    Analyze This Meter
-                  </button>
-                )}
-
-                {item.status === 'error' && (
-                  <div className="mt-4 flex items-start gap-2 text-red-500 bg-red-500/10 p-3 rounded-xl text-sm border border-red-500/20">
-                    <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                    <p className="font-medium">{item.error}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Results & Save */}
-              <div className="w-full lg:w-3/5 p-6 flex flex-col justify-center">
-                {item.status === 'idle' && (
-                  <div className="h-full flex flex-col items-center justify-center text-neutral-500 opacity-60">
-                    <ScanLine size={48} className="mb-4 opacity-20" />
-                    <p className="text-sm text-center px-8">
-                      Click "Analyze" to extract meter values.
-                    </p>
-                  </div>
-                )}
-
-                {item.status === 'processing' && (
-                  <div className="space-y-6 max-w-sm mx-auto w-full">
-                    <h3 className="text-sm font-semibold text-neutral-500 uppercase tracking-wider mb-4 text-center">Pipeline Status</h3>
-                    <PipelineStep number={1} title="Detect Regions of Interest (ROI)" isActive={item.pipelineStep === 1} isDone={item.pipelineStep > 1} />
-                    <PipelineStep number={2} title="Extract Text via OCR" isActive={item.pipelineStep === 2} isDone={item.pipelineStep > 2} />
-                    <PipelineStep number={3} title="Filter & Format Output" isActive={item.pipelineStep === 3} isDone={item.pipelineStep > 3} />
-                  </div>
-                )}
-
-                {item.status === 'success' && item.results && (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <ResultCard icon={<Activity size={18} className="text-[#f97316]" />} label="Register Code" value={item.results.registerCode} />
-                      <ResultCard icon={<Hash size={18} className="text-emerald-500" />} label="Serial Number" value={item.results.serialNumber} />
-                      <div className="sm:col-span-2">
-                        <ResultCard icon={<Zap size={18} className="text-amber-500" />} label="Energy Reading" value={item.results.energyReading} highlight />
-                      </div>
-                    </div>
-
-                    <div className="pt-6 border-t border-[#2a2a2a]">
-                      <h3 className="text-sm font-semibold text-neutral-300 mb-4">Save to Database</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label className="block text-xs font-medium text-neutral-500 mb-1">Feeder Name</label>
-                          <input 
-                            type="text" 
-                            value={item.feederName}
-                            onChange={(e) => updateItem(item.id, { feederName: e.target.value })}
-                            className="w-full px-3 py-2 bg-transparent border border-[#2a2a2a] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f97316] text-sm text-neutral-100 placeholder-neutral-600"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-neutral-500 mb-1">Date</label>
-                          <input 
-                            type="date" 
-                            value={item.readingDate}
-                            onChange={(e) => updateItem(item.id, { readingDate: e.target.value })}
-                            className="w-full px-3 py-2 bg-transparent border border-[#2a2a2a] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f97316] text-sm text-neutral-100 placeholder-neutral-600"
-                            style={{ colorScheme: 'dark' }}
-                          />
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleSave(item.id)}
-                        disabled={item.isSaved}
-                        className={`w-full py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-all ${
-                          item.isSaved 
-                            ? 'bg-emerald-500/10 text-emerald-500 cursor-default border border-emerald-500/20' 
-                            : 'bg-[#f97316] text-white hover:bg-[#ea580c] shadow-md active:scale-[0.98]'
-                        }`}
-                      >
-                        {item.isSaved ? (
-                          <>
-                            <CheckCircle2 size={18} />
-                            Saved to Table
-                          </>
-                        ) : (
-                          <>
-                            <Save size={18} />
-                            Save Record
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+        ))}
+        
+        {/* Bottom Dropzone */}
+        <div className="pt-4">
+          <ImageUploader onImagesSelected={handleImagesSelected} />
+        </div>
       </div>
     </div>
   );
 }
 
-function PipelineStep({ number, title, isActive, isDone }: { number: number, title: string, isActive: boolean, isDone: boolean }) {
+function InputField({ label, value, onChange, disabled }: { label: string, value: string, onChange: (v: string) => void, disabled: boolean }) {
   return (
-    <div className={`flex items-center gap-3 transition-opacity duration-300 ${isActive || isDone ? 'opacity-100' : 'opacity-40'}`}>
-      <div className={`
-        w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0
-        ${isDone ? 'bg-emerald-500/20 text-emerald-500' : isActive ? 'bg-[#f97316] text-white animate-pulse' : 'bg-[#2a2a2a] text-neutral-500'}
-      `}>
-        {isDone ? <CheckCircle2 size={14} /> : number}
-      </div>
-      <span className={`text-sm font-medium ${isActive ? 'text-[#f97316]' : 'text-neutral-400'}`}>
-        {title}
-      </span>
+    <div className="flex flex-col gap-2">
+      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider pl-1">{label}</label>
+      <input 
+        type="text" 
+        value={value || ''} 
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-4 py-3 text-2xl font-mono font-bold text-neutral-100 focus:outline-none focus:border-[#f97316] focus:ring-1 focus:ring-[#f97316] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+      />
     </div>
   );
 }
 
-function ResultCard({ icon, label, value, highlight = false }: { icon: React.ReactNode, label: string, value: string, highlight?: boolean }) {
+function ZoomInputField({ label, value }: { label: string, value: string }) {
   return (
-    <div className={`
-      p-3 rounded-2xl border flex items-start gap-3
-      ${highlight ? 'bg-[#f97316]/10 border-[#f97316]/20' : 'bg-[#1a1a1a] border-[#2a2a2a]'}
-    `}>
-      <div className={`p-2 rounded-xl bg-[#0a0a0a] shadow-sm border border-[#2a2a2a] shrink-0`}>
-        {icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-0.5">{label}</p>
-        <p className="text-base font-mono font-medium text-neutral-100 truncate" title={value}>
-          {value || "Not found"}
-        </p>
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-bold text-neutral-500 uppercase tracking-wider">{label}</label>
+      <div className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl px-5 py-4 text-4xl font-mono font-bold text-[#f97316] break-all">
+        {value || '-'}
       </div>
     </div>
   );

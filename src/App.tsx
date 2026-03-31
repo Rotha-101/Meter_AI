@@ -1,13 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { ScanLine, Table2, BarChart3, Search, Bell, Settings, Activity, FileText } from 'lucide-react';
+import { ScanLine, Table2, BarChart3, Search, Settings, Activity, Database, Server, Menu } from 'lucide-react';
 import { ScannerTab } from './components/ScannerTab';
 import { TableTab } from './components/TableTab';
 import { DashboardTab } from './components/DashboardTab';
+import { DatabaseTab } from './components/DatabaseTab';
+import { ServerTab } from './components/ServerTab';
+import { ServerConfig, ScannedItem } from './types';
 import { MeterRecord, initialRecords } from './data/mockData';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'scanner' | 'table' | 'dashboard'>('scanner');
+  const [activeTab, setActiveTab] = useState<'scanner' | 'table' | 'dashboard' | 'database' | 'server'>('scanner');
   
+  const [isServerConnected, setIsServerConnected] = useState(() => {
+    return localStorage.getItem('serverConnected') === 'true';
+  });
+
+  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem('serverConnected', String(isServerConnected));
+  }, [isServerConnected]);
+
+  // Server Config State
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(() => {
+    const saved = localStorage.getItem('serverConfig');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return { url: 'http://192.168.0.230:3000', id: 'ithvannsith@schneitec.com.kh', pw: '', model: 'gemma3:12b' };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('serverConfig', JSON.stringify(serverConfig));
+  }, [serverConfig]);
+
   // Load records from local storage or use initial mock data
   const [records, setRecords] = useState<MeterRecord[]>(() => {
     const saved = localStorage.getItem('meterRecords');
@@ -49,77 +75,62 @@ export default function App() {
         </div>
         
         {/* Header Block (Top Right) */}
-        <div className="flex-1 bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] flex items-center justify-between px-6">
-          <div className="flex items-center gap-4 flex-1">
-            {/* Search Bar */}
-            <div className="relative max-w-2xl w-full hidden md:block">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={20} />
-              <input 
-                type="text" 
-                placeholder="Search records, serial numbers..." 
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-full py-2.5 pl-12 pr-4 text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-[#f97316]/20 focus:border-[#f97316] transition-all"
-              />
-            </div>
+        <div className="flex-1 bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] flex items-center justify-between px-6 overflow-x-auto">
+          <div className="flex items-center gap-2 flex-1 min-w-max pr-4">
+            <NavItem 
+              active={activeTab === 'scanner'} 
+              onClick={() => setActiveTab('scanner')} 
+              icon={<ScanLine size={18} />}
+              label="Meter Scanner"
+              horizontal
+            />
+            <NavItem 
+              active={activeTab === 'table'} 
+              onClick={() => setActiveTab('table')} 
+              icon={<Table2 size={18} />}
+              label="Data Grid"
+              horizontal
+            />
+            <NavItem 
+              active={activeTab === 'dashboard'} 
+              onClick={() => setActiveTab('dashboard')} 
+              icon={<BarChart3 size={18} />}
+              label="Analytics"
+              horizontal
+            />
+            <NavItem 
+              active={activeTab === 'database'} 
+              onClick={() => setActiveTab('database')} 
+              icon={<Database size={18} />}
+              label="Database"
+              horizontal
+            />
+            <NavItem 
+              active={activeTab === 'server'} 
+              onClick={() => setActiveTab('server')} 
+              icon={<Server size={18} />}
+              label="Server Connection"
+              horizontal
+            />
           </div>
           
-          <div className="flex items-center gap-4 text-neutral-400">
-            <button className="p-2 hover:bg-[#2a2a2a] rounded-full transition-colors">
-              <Bell size={20} />
-            </button>
-            <button className="p-2 hover:bg-[#2a2a2a] rounded-full transition-colors">
+          <div className="flex items-center gap-4 text-neutral-400 shrink-0">
+            <div className="hidden sm:flex items-center gap-2 mr-2">
+              <span className={`w-2 h-2 rounded-full ${isServerConnected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`}></span>
+              <span className="text-xs font-medium">{isServerConnected ? 'Connected' : 'Disconnected'}</span>
+            </div>
+            <button 
+              onClick={() => setActiveTab('server')}
+              className={`p-2 rounded-full transition-colors ${activeTab === 'server' ? 'bg-[#f97316]/10 text-[#f97316]' : 'hover:bg-[#2a2a2a]'}`}
+            >
               <Settings size={20} />
             </button>
-            <div className="h-10 w-10 bg-[#f97316] text-white rounded-full flex items-center justify-center font-bold text-sm ml-2 shadow-sm">
-              JD
-            </div>
           </div>
         </div>
       </div>
 
       {/* Middle Row */}
       <div className="flex gap-3 flex-1 min-h-0">
-        {/* Left Sidebar */}
-        <div className="w-64 bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] shrink-0 flex flex-col overflow-hidden hidden md:flex">
-          <div className="p-4">
-            <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3 px-2">Menu</p>
-            <nav className="flex flex-col gap-1.5">
-              <NavItem 
-                active={activeTab === 'scanner'} 
-                onClick={() => setActiveTab('scanner')} 
-                icon={<ScanLine size={20} />}
-                label="Meter Scanner"
-              />
-              <NavItem 
-                active={activeTab === 'table'} 
-                onClick={() => setActiveTab('table')} 
-                icon={<Table2 size={20} />}
-                label="Data Grid"
-              />
-              <NavItem 
-                active={activeTab === 'dashboard'} 
-                onClick={() => setActiveTab('dashboard')} 
-                icon={<BarChart3 size={20} />}
-                label="Analytics"
-              />
-            </nav>
-          </div>
-          
-          <div className="mt-auto p-5 border-t border-[#2a2a2a] bg-[#0a0a0a]">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 bg-[#141414] border border-[#2a2a2a] rounded-lg flex items-center justify-center shadow-sm">
-                <Activity className="text-[#f97316]" size={20} />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-neutral-100">System Status</p>
-                <p className="text-xs text-neutral-400 flex items-center gap-1.5 mt-0.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
-                  Operational
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-        
         {/* Main Content */}
         <div className="flex-1 bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] overflow-hidden flex flex-col relative">
           {/* Mobile Nav */}
@@ -127,42 +138,32 @@ export default function App() {
             <MobileNavItem active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} icon={<ScanLine size={16} />} label="Scanner" />
             <MobileNavItem active={activeTab === 'table'} onClick={() => setActiveTab('table')} icon={<Table2 size={16} />} label="Grid" />
             <MobileNavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<BarChart3 size={16} />} label="Analytics" />
+            <MobileNavItem active={activeTab === 'database'} onClick={() => setActiveTab('database')} icon={<Database size={16} />} label="Database" />
+            <MobileNavItem active={activeTab === 'server'} onClick={() => setActiveTab('server')} icon={<Server size={16} />} label="Server" />
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-[#0a0a0a]">
-            {activeTab === 'scanner' && <ScannerTab onSaveRecord={handleSaveRecord} />}
+            {activeTab === 'scanner' && (
+              <ScannerTab 
+                onSaveRecord={handleSaveRecord} 
+                serverConfig={serverConfig} 
+                isConnected={isServerConnected} 
+                items={scannedItems}
+                setItems={setScannedItems}
+              />
+            )}
             {activeTab === 'table' && <TableTab records={records} setRecords={setRecords} />}
             {activeTab === 'dashboard' && <DashboardTab records={records} />}
-          </div>
-        </div>
-
-        {/* Right Sidebar */}
-        <div className="w-80 bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] shrink-0 flex flex-col overflow-hidden hidden xl:flex">
-          <div className="p-5 border-b border-[#2a2a2a] flex items-center justify-between bg-[#0a0a0a]">
-            <h3 className="font-semibold text-sm text-neutral-200 tracking-wide uppercase">Recent Activity</h3>
-            <span className="text-xs text-[#f97316] font-medium cursor-pointer hover:underline">View All</span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="space-y-5">
-              {records.slice(-8).reverse().map((record, i) => (
-                <div key={record.id || i} className="flex gap-3 items-start group cursor-pointer">
-                  <div className="w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-[#f97316]/10 group-hover:text-[#f97316] transition-colors text-neutral-500">
-                    <FileText size={18} />
-                  </div>
-                  <div className="flex-1 min-w-0 border-b border-[#2a2a2a] pb-4 group-last:border-0">
-                    <p className="text-sm font-semibold text-neutral-100 truncate">Meter {record.serialNumber}</p>
-                    <p className="text-xs text-neutral-400 truncate mt-0.5">Reading: {record.reading} • {record.feeder}</p>
-                    <p className="text-[11px] text-neutral-500 mt-1.5">{record.date}</p>
-                  </div>
-                </div>
-              ))}
-              {records.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-40 text-neutral-500">
-                  <Activity size={32} className="mb-3 opacity-50" />
-                  <p className="text-sm font-medium">No recent activity</p>
-                </div>
-              )}
-            </div>
+            {activeTab === 'database' && <DatabaseTab records={records} />}
+            {activeTab === 'server' && (
+              <ServerTab 
+                config={serverConfig} 
+                onSave={setServerConfig} 
+                isConnected={isServerConnected}
+                onConnect={() => setIsServerConnected(true)}
+                onDisconnect={() => setIsServerConnected(false)}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -171,8 +172,8 @@ export default function App() {
       <div className="h-12 bg-[#141414] rounded-xl shadow-sm border border-[#2a2a2a] shrink-0 flex items-center px-6 justify-between text-sm text-neutral-400 font-medium">
         <div className="flex items-center gap-6">
           <span className="flex items-center gap-2 text-neutral-300">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"></div> 
-            Connected
+            <div className={`w-2.5 h-2.5 rounded-full ${isServerConnected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`}></div> 
+            {isServerConnected ? 'Connected' : 'Disconnected'}
           </span>
           <span className="hidden sm:inline text-neutral-500">Last sync: Just now</span>
         </div>
@@ -186,12 +187,13 @@ export default function App() {
   );
 }
 
-function NavItem({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
+function NavItem({ active, onClick, icon, label, horizontal }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, horizontal?: boolean }) {
   return (
     <button
       onClick={onClick}
       className={`
-        flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all w-full text-left
+        flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all
+        ${horizontal ? 'whitespace-nowrap' : 'w-full text-left'}
         ${active 
           ? 'bg-[#f97316]/10 text-[#f97316] shadow-sm border border-[#f97316]/20' 
           : 'text-neutral-400 hover:bg-[#1a1a1a] hover:text-neutral-100'}
